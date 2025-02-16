@@ -1,3 +1,4 @@
 target/
 src/tb_client.rs
 assets/
+src/tigerbeetle/

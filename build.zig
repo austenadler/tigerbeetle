@@ -76,6 +76,7 @@ pub fn build(b: *std.Build) !void {
         .clients_java = b.step("clients:java", "Build Java client shared library"),
         .clients_node = b.step("clients:node", "Build Node client shared library"),
         .clients_python = b.step("clients:python", "Build Python client library"),
+        .clients_rust = b.step("clients:rust", "Build Rust client library"),
         .fuzz = b.step("fuzz", "Run non-VOPR fuzzers"),
         .fuzz_build = b.step("fuzz:build", "Build non-VOPR fuzzers"),
         .run = b.step("run", "Run TigerBeetle"),
@@ -295,6 +296,12 @@ pub fn build(b: *std.Build) !void {
     build_c_client(b, build_steps.clients_c, .{
         .vsr_options = vsr_options,
         .tb_client_header = tb_client_header,
+        .mode = mode,
+    });
+    build_rust_client(b, build_steps.clients_rust, .{
+        .vsr_module = vsr_module,
+        .vsr_options = vsr_options,
+        .tb_client_header = tb_client_header.path,
         .mode = mode,
     });
 
@@ -926,6 +933,64 @@ fn strip_glibc_version(triple: []const u8) []const u8 {
     }
     assert(std.mem.indexOf(u8, triple, "gnu") == null);
     return triple;
+}
+
+fn build_rust_client(
+    b: *std.Build,
+    step_clients_rust: *std.Build.Step,
+    options: struct {
+        vsr_module: *std.Build.Module,
+        vsr_options: *std.Build.Step.Options,
+        tb_client_header: std.Build.LazyPath,
+        mode: Mode,
+    },
+) void {
+    const rust_bindings_generator = b.addExecutable(.{
+        .name = "rust_bindings",
+        .root_source_file = b.path("src/clients/rust/rust_bindings.zig"),
+        .target = b.graph.host,
+    });
+    rust_bindings_generator.root_module.addImport("vsr", options.vsr_module);
+    rust_bindings_generator.root_module.addOptions("vsr_options", options.vsr_options);
+    const bindings = Generated.file(b, .{
+        .generator = rust_bindings_generator,
+        .path = "./src/clients/rust/src/tb_client.rs",
+    });
+
+    inline for (platforms) |platform| {
+        const cross_target = CrossTarget.parse(.{
+            .arch_os_abi = platform[0],
+            .cpu_features = platform[2],
+        }) catch unreachable;
+        const resolved_target = b.resolveTargetQuery(cross_target);
+
+        const shared_lib = b.addSharedLibrary(.{
+            .name = "tb_client",
+            .root_source_file = b.path("src/tb_client_exports.zig"),
+            .target = resolved_target,
+            .optimize = options.mode,
+        });
+
+        shared_lib.linkLibC();
+
+        if (resolved_target.result.os.tag == .windows) {
+            shared_lib.linkSystemLibrary("ws2_32");
+            shared_lib.linkSystemLibrary("advapi32");
+        }
+
+        shared_lib.root_module.addOptions("vsr_options", options.vsr_options);
+
+        step_clients_rust.dependOn(&b.addInstallFile(
+            shared_lib.getEmittedBin(),
+            b.pathJoin(&.{
+                "../src/clients/rust/src/tigerbeetle/lib/",
+                platform[0],
+                shared_lib.out_filename,
+            }),
+        ).step);
+    }
+
+    step_clients_rust.dependOn(&bindings.step);
 }
 
 fn build_go_client(

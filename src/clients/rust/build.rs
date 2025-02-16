@@ -3,6 +3,11 @@ use ignore::Walk;
 use std::{env, fs, path::Path};
 
 fn main() -> anyhow::Result<()> {
+    Ok(())
+}
+
+/*
+fn main() -> anyhow::Result<()> {
     let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
 
     prepare_dependencies(&cargo_manifest_dir)?;
@@ -61,7 +66,7 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
+*/
 fn prepare_dependencies(manifest_dir: &str) -> anyhow::Result<()> {
     let build_in_tree = is_build_in_tree(manifest_dir)?;
     if build_in_tree {
